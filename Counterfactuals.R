@@ -1,7 +1,10 @@
 library(dplyr)
 library(tidyr)
 library(ggplot2)
-
+library(pROC)
+library(counterfactuals)
+library(mlr3)
+library(mlr3learners)
 
 LendingAcc <- read.csv("C:/Users/jeroe/Uni_C/TrustML/LendingClub_2007_to_2018Q4.csv/accepted_2007_to_2018Q4.csv")
 head(LendingAcc)
@@ -10,13 +13,15 @@ LendingRej <- read.csv("C:/Users/jeroe/Uni_C/TrustML/LendingClub_2007_to_2018Q4.
 head(LendingRej)
 
 
-# Füge eine Spalte "Accepted" hinzu (1 für LendingAcc, 0 für LendingRej)
+# Add Column "Accepted"
 LendingAcc <- LendingAcc %>%
   mutate(Accepted = 1)
 
 LendingRej <- LendingRej %>%
   mutate(Accepted = 0)
 
+
+# Select relevant columns from LendingAcc
 LendingAcc_relevant <- LendingAcc %>%
   select(
     loan_amnt, issue_d, title, 
@@ -26,6 +31,7 @@ LendingAcc_relevant <- LendingAcc %>%
 
 
 
+# Date in one format
 
 # Convert LendingAcc issue_d (Dec-2015 format) to MM-YYYY format
 LendingAcc_relevant$issue_d <- as.character(LendingAcc_relevant$issue_d)
@@ -101,6 +107,8 @@ LendingClub <- na.omit(LendingClub)
 
 
 
+############ Logistic regression model ############
+
 # Train a logistic regression model using glm()
 # We use Accepted as the target variable and the rest as predictors
 
@@ -128,7 +136,63 @@ head(predicted_class)
 table(Predicted = predicted_class, Actual = LendingClub$Accepted)
 
 # ROC curve and AUC
-library(pROC)
+
 roc_curve <- roc(LendingClub$Accepted, pred_prob)
 plot(roc_curve)
-auc(roc_curve)
+auc(roc_curve) # 0,92 --> Very good
+
+
+############### Logistic regression with mlr3
+
+LendingClub$Accepted <- as.factor(LendingClub$Accepted)
+# Dataset very large ---> Sample
+set.seed(123)  # Für Reproduzierbarkeit
+LendingClub_sample <- LendingClub[sample(nrow(LendingClub), size = 0.01 * nrow(LendingClub)), ]
+
+
+# Erstelle einen Task (wir nehmen an, dass LendingClub dein Datensatz ist und "Accepted" die Zielvariable ist)
+task_sample <- TaskClassif$new(id = "lendingclub_sample", backend = LendingClub_sample, target = "Accepted")
+# Wähle den Learner (Logistische Regression)
+learner <- lrn("classif.log_reg")
+
+
+
+
+
+# Trainiere das Modell
+learner$train(task_sample)
+
+# Vorhersage auf demselben Task
+predictions <- learner$predict(task_sample)
+
+# Ausgabe der Vorhersagen und Evaluierung
+print(predictions)
+
+# Berechne die Genauigkeit
+accuracy <- predictions$score(msr("classif.acc"))
+print(accuracy)
+
+# ROC-Kurve und AUC
+
+roc_curve <- roc(task$truth(), predictions$score())
+plot(roc_curve)
+auc_value <- auc(roc_curve)
+print(paste("AUC: ", auc_value))
+
+
+
+
+
+
+############ Random forest #########################
+
+# Train a random forest model using randomForest()
+# We use Accepted as the target variable and the rest as predictors
+modelrf <- randomForest(Accepted ~ loan_amnt + dti + emp_length,
+                              data = LendingClub,
+                              ntree = 500,
+                              importance = TRUE)
+
+
+
+
